@@ -77,6 +77,35 @@ namespace ART_OLC {
         }
     }
 
+    namespace {
+        // Lexicographic order of the key stored at `tid` against a bound.
+        //
+        // Range scans need this at the two boundary descent paths. Everywhere
+        // else a whole subtree is known to lie inside the range and its leaves
+        // can be taken without inspection, so this only runs O(depth) times per
+        // scan rather than once per result.
+        int compareStoredKey(TID tid, const Key &bound,
+                             Tree::LoadKeyFunction loadKey) {
+            Key stored;
+            loadKey(tid, stored);
+            return stored.compare(bound);
+        }
+
+        // The scan interval is inclusive at both ends: getChildren() is called
+        // with both bounds included and children strictly between them are
+        // copied wholesale, so the boundary children have to be refined against
+        // the full key rather than dropped.
+        bool leafAtOrAfter(TID tid, const Key &lower,
+                           Tree::LoadKeyFunction loadKey) {
+            return compareStoredKey(tid, lower, loadKey) >= 0;
+        }
+
+        bool leafAtOrBefore(TID tid, const Key &upper,
+                            Tree::LoadKeyFunction loadKey) {
+            return compareStoredKey(tid, upper, loadKey) <= 0;
+        }
+    }
+
     bool Tree::lookupRange(const Key &start, const Key &end, Key &continueKey, TID result[],
                                 std::size_t resultSize, std::size_t &resultsFound, ThreadInfo &threadEpocheInfo) const {
         for (uint32_t i = 0; i < std::min(start.getKeyLen(), end.getKeyLen()); ++i) {
@@ -113,7 +142,12 @@ namespace ART_OLC {
         std::function<void(N *, uint8_t, uint32_t, const N *, uint64_t)> findStart = [&copy, &start, &findStart, &toContinue, this](
                 N *node, uint8_t nodeK, uint32_t level, const N *parentNode, uint64_t vp) {
             if (N::isLeaf(node)) {
-                copy(node);
+                // A leaf on the lower-bound descent path may sort before start
+                // -- lazy expansion means it can be reached long before the
+                // bytes that would separate them.
+                if (leafAtOrAfter(N::getLeaf(node), start, loadKey)) {
+                    copy(node);
+                }
                 return;
             }
             uint64_t v;
@@ -143,7 +177,9 @@ namespace ART_OLC {
                         return;
                     }
                     if (N::isLeaf(node)) {
-                        copy(node);
+                        if (leafAtOrAfter(N::getLeaf(node), start, loadKey)) {
+                            copy(node);
+                        }
                         return;
                     }
                     goto readAgain;
@@ -182,6 +218,12 @@ namespace ART_OLC {
         std::function<void(N *, uint8_t, uint32_t, const N *, uint64_t)> findEnd = [&copy, &end, &toContinue, &findEnd, this](
                 N *node, uint8_t nodeK, uint32_t level, const N *parentNode, uint64_t vp) {
             if (N::isLeaf(node)) {
+                // Returning unconditionally here dropped every key reached
+                // along the upper bound's path, including `end` itself, which
+                // made the interval look exclusive at the top.
+                if (leafAtOrBefore(N::getLeaf(node), end, loadKey)) {
+                    copy(node);
+                }
                 return;
             }
             uint64_t v;
@@ -210,6 +252,9 @@ namespace ART_OLC {
                         return;
                     }
                     if (N::isLeaf(node)) {
+                        if (leafAtOrBefore(N::getLeaf(node), end, loadKey)) {
+                            copy(node);
+                        }
                         return;
                     }
                     goto readAgain;
@@ -306,6 +351,22 @@ namespace ART_OLC {
                         nextNode = N::getChild(startLevel, node);
                         node->readUnlockOrRestart(v, needRestart);
                         if (needRestart) goto restart;
+                        // Both bounds agree on this byte, so the scan follows a
+                        // single child. That child is not necessarily an inner
+                        // node: it can be absent, or a leaf placed here by lazy
+                        // expansion. Descending regardless dereferenced a null
+                        // or a tagged TID as if it were a node.
+                        if (nextNode == nullptr) {
+                            break;
+                        }
+                        if (N::isLeaf(nextNode)) {
+                            const TID tid = N::getLeaf(nextNode);
+                            if (leafAtOrAfter(tid, start, loadKey) &&
+                                leafAtOrBefore(tid, end, loadKey)) {
+                                copy(nextNode);
+                            }
+                            break;
+                        }
                         level++;
                         continue;
                     }
@@ -351,7 +412,12 @@ namespace ART_OLC {
         std::function<void(N *, uint8_t, uint32_t, const N *, uint64_t)> findStart = [&copy, &start, &findStart, &toContinue, this](
                 N *node, uint8_t nodeK, uint32_t level, const N *parentNode, uint64_t vp) {
             if (N::isLeaf(node)) {
-                copy(node);
+                // A leaf on the lower-bound descent path may sort before start
+                // -- lazy expansion means it can be reached long before the
+                // bytes that would separate them.
+                if (leafAtOrAfter(N::getLeaf(node), start, loadKey)) {
+                    copy(node);
+                }
                 return;
             }
             uint64_t v;
@@ -381,7 +447,9 @@ namespace ART_OLC {
                         return;
                     }
                     if (N::isLeaf(node)) {
-                        copy(node);
+                        if (leafAtOrAfter(N::getLeaf(node), start, loadKey)) {
+                            copy(node);
+                        }
                         return;
                     }
                     goto readAgain;
@@ -474,6 +542,17 @@ namespace ART_OLC {
                         nextNode = N::getChild(startLevel, node);
                         node->readUnlockOrRestart(v, needRestart);
                         if (needRestart) goto restart;
+                        // As above: the single child followed here can be
+                        // absent or a leaf, and was dereferenced as a node.
+                        if (nextNode == nullptr) {
+                            break;
+                        }
+                        if (N::isLeaf(nextNode)) {
+                            if (leafAtOrAfter(N::getLeaf(nextNode), start, loadKey)) {
+                                copy(nextNode);
+                            }
+                            break;
+                        }
                         level++;
                         continue;
                     }

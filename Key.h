@@ -36,6 +36,26 @@ public:
         return std::memcmp(&k[0], data, getKeyLen()) == 0;
     }
 
+    /**
+     * Lexicographic order against another key: negative if this sorts first,
+     * 0 if equal, positive if it sorts after. A shorter key that is a prefix
+     * of a longer one sorts first, matching the order the tree stores keys in.
+     *
+     * Range scans need this to decide whether a leaf reached along a bound's
+     * descent path actually falls inside the range.
+     */
+    int compare(const Key &k) const {
+        const uint32_t common = std::min(getKeyLen(), k.getKeyLen());
+        const int order = std::memcmp(data, &k[0], common);
+        if (order != 0) {
+            return order;
+        }
+        if (getKeyLen() == k.getKeyLen()) {
+            return 0;
+        }
+        return getKeyLen() < k.getKeyLen() ? -1 : 1;
+    }
+
     uint8_t &operator[](std::size_t i);
 
     const uint8_t &operator[](std::size_t i) const;
