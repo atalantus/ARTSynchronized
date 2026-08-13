@@ -30,6 +30,21 @@ namespace ART_OLC {
         N256 = 3
     };
 
+    /**
+     * A leaf holds nothing but the TID and carries no lock. It is written once
+     * before its pointer is published under the owning node's write lock and is
+     * never mutated afterwards, so a reader that validated the parent version
+     * before dereferencing already sees a consistent leaf. Reclamation still has
+     * to go through the epoche, since readers may hold the pointer.
+     *
+     * Child pointers referring to a Leaf have bit 63 set; see N::isLeaf.
+     * Must stay trivially destructible: the epoche frees with a bare
+     * operator delete and runs no destructor.
+     */
+    struct Leaf {
+        TID tid;
+    };
+
     static constexpr uint32_t maxStoredPrefixLength = 11;
 
     /**
@@ -123,8 +138,13 @@ namespace ART_OLC {
 
         static TID getLeaf(const N *n);
 
+        static Leaf *getLeafPtr(const N *n);
+
         static bool isLeaf(const N *n);
 
+        /**
+         * Allocates the leaf; the caller owns it until it is published into a node.
+         */
         static N *setLeaf(TID tid);
 
         static N *getAnyChild(const N *n);

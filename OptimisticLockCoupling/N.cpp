@@ -336,11 +336,16 @@ namespace ART_OLC {
     }
 
     N *N::setLeaf(TID tid) {
-        return reinterpret_cast<N *>(tid | (static_cast<uint64_t>(1) << 63));
+        auto leaf = new Leaf{tid};
+        return reinterpret_cast<N *>(reinterpret_cast<uint64_t>(leaf) | (static_cast<uint64_t>(1) << 63));
+    }
+
+    Leaf *N::getLeafPtr(const N *n) {
+        return reinterpret_cast<Leaf *>(reinterpret_cast<uint64_t>(n) & ((static_cast<uint64_t>(1) << 63) - 1));
     }
 
     TID N::getLeaf(const N *n) {
-        return (reinterpret_cast<uint64_t>(n) & ((static_cast<uint64_t>(1) << 63) - 1));
+        return getLeafPtr(n)->tid;
     }
 
     std::tuple<N *, uint8_t> N::getSecondChild(N *node, const uint8_t key) {
@@ -358,6 +363,7 @@ namespace ART_OLC {
 
     void N::deleteNode(N *node) {
         if (N::isLeaf(node)) {
+            delete N::getLeafPtr(node);
             return;
         }
         switch (node->getType()) {

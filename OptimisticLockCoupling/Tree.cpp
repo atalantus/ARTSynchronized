@@ -579,6 +579,10 @@ namespace ART_OLC {
 
     void Tree::insert(const Key &k, TID tid, ThreadInfo &epocheInfo) {
         EpocheGuard epocheGuard(epocheInfo);
+        // Allocated once and reused across restarts: the leaf stays unreachable
+        // for other threads until one of the three sites below publishes it, and
+        // allocating inside the loop would leak one leaf per restart.
+        N *newLeaf = N::setLeaf(tid);
         restart:
         bool needRestart = false;
 
@@ -617,7 +621,7 @@ namespace ART_OLC {
                     auto newNode = new N4(node->getPrefix(), nextLevel - level);
 
                     // 2)  add node and (tid, *k) as children
-                    newNode->insert(k[nextLevel], N::setLeaf(tid));
+                    newNode->insert(k[nextLevel], newLeaf);
                     newNode->insert(nonMatchingKey, node);
 
                     // 3) upgradeToWriteLockOrRestart, update parentNode to point to the new node, unlock
@@ -641,7 +645,7 @@ namespace ART_OLC {
             if (needRestart) goto restart;
 
             if (nextNode == nullptr) {
-                N::insertAndUnlock(node, v, parentNode, parentVersion, parentKey, nodeKey, N::setLeaf(tid), needRestart, epocheInfo);
+                N::insertAndUnlock(node, v, parentNode, parentVersion, parentKey, nodeKey, newLeaf, needRestart, epocheInfo);
                 if (needRestart) goto restart;
                 return;
             }
@@ -665,7 +669,7 @@ namespace ART_OLC {
                 }
 
                 auto n4 = new N4(&k[level], prefixLength);
-                n4->insert(k[level + prefixLength], N::setLeaf(tid));
+                n4->insert(k[level + prefixLength], newLeaf);
                 n4->insert(key[level + prefixLength], nextNode);
                 N::change(node, k[level - 1], n4);
                 node->writeUnlock();
@@ -761,6 +765,10 @@ namespace ART_OLC {
                             N::removeAndUnlock(node, v, k[level], parentNode, parentVersion, parentKey, needRestart, threadInfo);
                             if (needRestart) goto restart;
                         }
+                        // Reached only once the leaf is unlinked -- every failure
+                        // path above restarts. Concurrent readers may still hold
+                        // the pointer, so it is retired through the epoche.
+                        this->epoche.markNodeForDeletion(N::getLeafPtr(nextNode), threadInfo);
                         return;
                     }
                     level++;
