@@ -308,9 +308,10 @@ namespace ART_OLC {
     }
 
     void N::setPrefix(const uint8_t *prefix, uint32_t length) {
+        assert(length <= maxPrefixLength && "key longer than prefixCount can hold");
         if (length > 0) {
             memcpy(this->prefix, prefix, std::min(length, maxStoredPrefixLength));
-            prefixCount = length;
+            prefixCount = static_cast<uint16_t>(length);
         } else {
             prefixCount = 0;
         }
@@ -324,7 +325,9 @@ namespace ART_OLC {
         if (node->getPrefixLength() < maxStoredPrefixLength) {
             this->prefix[prefixCopyCount - 1] = key;
         }
-        this->prefixCount += node->getPrefixLength() + 1;
+        const uint32_t mergedLength = this->getPrefixLength() + node->getPrefixLength() + 1;
+        assert(mergedLength <= maxPrefixLength && "merged prefix longer than prefixCount can hold");
+        this->prefixCount = static_cast<uint16_t>(mergedLength);
     }
 
 

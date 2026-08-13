@@ -32,6 +32,16 @@ namespace ART_OLC {
 
     static constexpr uint32_t maxStoredPrefixLength = 11;
 
+    /**
+     * Cap on prefixCount, which holds the *full* compressed-path length and is
+     * therefore bounded by the key length, not by maxStoredPrefixLength.
+     * Storing it in 16 bits is what pays for the 16-bit count while keeping
+     * sizeof(N) at 24; the price is that keys may not exceed this many bytes.
+     * Truncation would corrupt descents silently, so both assignment sites
+     * assert.
+     */
+    static constexpr uint32_t maxPrefixLength = UINT16_MAX;
+
     using Prefix = uint8_t[maxStoredPrefixLength];
 
     class N {
@@ -48,9 +58,12 @@ namespace ART_OLC {
         //2b type 60b version 1b lock 1b obsolete
         std::atomic<uint64_t> typeVersionLockObsolete{0b100};
         // version 1, unlocked, not obsolete
-        uint32_t prefixCount = 0;
+        uint16_t prefixCount = 0;
 
-        uint8_t count = 0;
+        // 16-bit because an N256 holds up to 256 children: at 8 bits the 256th
+        // insert wraps to 0 and the node is permanently 256 short, so it never
+        // registers as underfull and never shrinks or collapses again.
+        uint16_t count = 0;
         Prefix prefix;
 
 
