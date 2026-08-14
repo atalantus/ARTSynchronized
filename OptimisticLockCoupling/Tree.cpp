@@ -57,10 +57,11 @@ namespace ART_OLC {
                         return 0;
                     }
                     if (N::isLeaf(node)) {
+                        TID tid = N::getLeaf(node);
+
                         parentNode->readUnlockOrRestart(v, needRestart);
                         if (needRestart) goto restart;
 
-                        TID tid = N::getLeaf(node);
                         if (level < k.getKeyLen() - 1 || optimisticPrefixMatch) {
                             return checkKey(tid, k);
                         }
