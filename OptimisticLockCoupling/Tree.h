@@ -78,6 +78,19 @@ namespace ART_OLC {
         void insert(const Key &k, TID tid, ThreadInfo &epocheInfo);
 
         void remove(const Key &k, TID tid, ThreadInfo &epocheInfo);
+
+        /**
+         * Read-only root, for the space-analysis census in src/art/space_census.hpp.
+         *
+         * The tiny variants expose their dereference tables as a public member and
+         * so can be measured without touching them; this reference has no such
+         * handle, and a footprint comparison needs both sides. Nothing on a measured
+         * path calls it -- the census runs after the tree is built and quiescent,
+         * from art_space, a binary the throughput and counter sweeps never invoke.
+         * An unused inline accessor emits no code and adds no field, so Tree.cpp's
+         * object file is unchanged by it; that is checked rather than assumed.
+         */
+        const N *getRoot() const { return root; }
     };
 }
 #endif //ART_OPTIMISTICLOCK_COUPLING_N_H
