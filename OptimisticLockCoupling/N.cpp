@@ -2,6 +2,7 @@
 #include <algorithm>
 
 #include "N.h"
+#include "art/restart_stats.hpp"
 #include "N4.cpp"
 #include "N16.cpp"
 #include "N48.cpp"
@@ -36,6 +37,7 @@ namespace ART_OLC {
             version = version + 0b10;
         } else {
             needRestart = true;
+            TPT_RESTART(cas);
         }
     }
 
@@ -113,6 +115,7 @@ namespace ART_OLC {
         }
 
         auto nBig = new biggerN(n->getPrefix(), n->getPrefixLength());
+        TPT_RESTART(grow);
         n->copyTo(nBig);
         nBig->insert(key, val);
 
@@ -272,6 +275,7 @@ namespace ART_OLC {
         } while (isLocked(version));*/
         if (isLocked(version) || isObsolete(version)) {
             needRestart = true;
+            TPT_RESTART(locked);
         }
         return version;
         //uint64_t version;
@@ -289,6 +293,7 @@ namespace ART_OLC {
 
     void N::readUnlockOrRestart(uint64_t startRead, bool &needRestart) const {
         needRestart = (startRead != typeVersionLockObsolete.load());
+        if (needRestart) TPT_RESTART(version);
     }
 
     uint32_t N::getPrefixLength() const {
